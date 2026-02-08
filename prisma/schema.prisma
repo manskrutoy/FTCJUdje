@@ -1,0 +1,109 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Firebase Auth User
+model User {
+  id              String         @id @default(cuid())
+  firebaseUid     String         @unique
+  email           String         @unique
+  displayName     String?
+  
+  // Profile Info (role: STUDENT, MENTOR, or COACH)
+  role            String         @default("STUDENT")
+  teamNumber      String?
+  experienceLevel String?        // rookie, veteran, expert
+  
+  // Relations
+  teamId          String?
+  team            Team?          @relation(fields: [teamId], references: [id])
+  sessions        Session[]
+  progress        UserProgress[]
+  
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+// Team (multiple users can be on same team)
+model Team {
+  id               String    @id @default(cuid())
+  teamNumber       String    @unique
+  teamName         String
+  level            String    @default("rookie")
+  region           String?
+  targetAwards     String    @default("[]")
+  robotDescription String?
+  innovations      String?
+  outreachSummary  String?
+  
+  members          User[]
+  sessions         Session[]
+  
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+// Interview Session
+model Session {
+  id           String        @id @default(cuid())
+  userId       String?
+  teamId       String?
+  award        String
+  difficulty   String        @default("standard")
+  mode         String        @default("standard")
+  duration     Int
+  startedAt    DateTime      @default(now())
+  completedAt  DateTime?
+  
+  user         User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team         Team?         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  answers      Answer[]
+  rubricScores RubricScore[]
+}
+
+// Q&A Answers
+model Answer {
+  id             String   @id @default(cuid())
+  sessionId      String
+  questionId     String
+  questionText   String
+  answerText     String
+  coachHintsUsed Int      @default(0)
+  timestamp      DateTime @default(now())
+  session        Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+// Rubric Scores
+model RubricScore {
+  id        String  @id @default(cuid())
+  sessionId String
+  category  String
+  score     Int
+  feedback  String
+  session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+// User Progress Tracking
+model UserProgress {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  award         String    // inspire, think, design, etc.
+  completed     Int       @default(0)
+  bestScore     Float?
+  lastPracticed DateTime?
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@unique([userId, award])
+}
