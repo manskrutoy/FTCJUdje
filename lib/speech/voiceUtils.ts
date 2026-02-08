@@ -43,16 +43,33 @@ export class VoiceRecognition {
                 }
             }
 
+
             this.recognition.onend = () => {
+                console.log('Speech recognition ended')
                 this.isListening = false
+
+                // Auto-restart if we want continuous listening
+                // This prevents the microphone from stopping when user pauses
+                if (this.shouldContinue) {
+                    console.log('Auto-restarting speech recognition...')
+                    setTimeout(() => {
+                        if (this.shouldContinue) {
+                            this.start()
+                        }
+                    }, 100)
+                }
             }
         }
     }
 
+    private shouldContinue: boolean = false
+
     start() {
         if (this.recognition && !this.isListening) {
             try {
+                this.shouldContinue = true
                 this.recognition.start()
+                console.log('Speech recognition started')
             } catch (error) {
                 console.error('Speech recognition start error:', error)
                 this.isListening = false
@@ -61,6 +78,8 @@ export class VoiceRecognition {
     }
 
     stop() {
+        console.log('Stopping speech recognition permanently')
+        this.shouldContinue = false
         if (this.recognition && this.isListening) {
             try {
                 this.recognition.stop()
