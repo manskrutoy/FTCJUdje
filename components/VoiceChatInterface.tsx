@@ -27,15 +27,35 @@ export default function VoiceChatInterface({ award, difficulty, mode, onComplete
     const maxQuestions = 6
 
     useEffect(() => {
-        if (typeof window !== 'undefined') {
-            voiceRecognition.current = new VoiceRecognition(
-                handleTranscriptResult,
-                handleVoiceError
-            )
+        const initVoice = async () => {
+            // Check microphone permission
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+                stream.getTracks().forEach(track => track.stop())
+                console.log('Microphone permission granted')
+            } catch (err) {
+                console.error('Microphone permission denied:', err)
+                setError('Microphone access denied. Please allow microphone access in your browser settings.')
+                return
+            }
+
+            if (typeof window !== 'undefined') {
+                voiceRecognition.current = new VoiceRecognition(
+                    handleTranscriptResult,
+                    handleVoiceError
+                )
+
+                if (!voiceRecognition.current.isSupported()) {
+                    setError('Speech recognition is not supported in your browser. Please use Chrome, Edge, or Safari.')
+                    return
+                }
+            }
+
+            // Start with AI's first question
+            startInterview()
         }
 
-        // Start with AI's first question
-        startInterview()
+        initVoice()
 
         return () => {
             stopSpeaking()
@@ -105,6 +125,7 @@ export default function VoiceChatInterface({ award, difficulty, mode, onComplete
     }
 
     const handleTranscriptResult = (transcript: string) => {
+        console.log('Voice transcript:', transcript)
         setCurrentTranscript(transcript)
         setIsListening(false)
 
@@ -122,11 +143,13 @@ export default function VoiceChatInterface({ award, difficulty, mode, onComplete
     }
 
     const handleVoiceError = (errorMsg: string) => {
+        console.error('Voice recognition error:', errorMsg)
         setError(`Voice error: ${errorMsg}`)
         setIsListening(false)
     }
 
     const startListening = () => {
+        console.log('Starting to listen...')
         if (voiceRecognition.current && !isListening && !isSpeaking) {
             setError('')
             voiceRecognition.current.start()
@@ -135,6 +158,7 @@ export default function VoiceChatInterface({ award, difficulty, mode, onComplete
     }
 
     const stopListening = () => {
+        console.log('Stopping listening...')
         if (voiceRecognition.current) {
             voiceRecognition.current.stop()
             setIsListening(false)
