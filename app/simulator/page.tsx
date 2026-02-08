@@ -289,7 +289,7 @@ function SimulatorContent() {
                         <div className="bg-ftc-blue text-white p-6">
                             <div className="flex justify-between items-center mb-4">
                                 <h2 className="text-2xl font-bold">{getAwardById(award)?.name} Interview</h2>
-                                <Timer seconds={timeRemaining} />
+                                <Timer duration={timeRemaining} onComplete={() => { }} />
                             </div>
                             <div className="w-full bg-blue-800 rounded-full h-2">
                                 <div
@@ -348,14 +348,6 @@ function SimulatorContent() {
                         </div>
                     </div>
                 </div>
-
-                {showCoachModal && (
-                    <CoachModal
-                        questionText={currentQuestion?.text || ''}
-                        award={award}
-                        onClose={() => setShowCoachModal(false)}
-                    />
-                )}
             </div>
         )
     }
