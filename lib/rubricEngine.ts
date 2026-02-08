@@ -124,6 +124,10 @@ function scoreAlignment(answer: string, award: string): { score: number; feedbac
     }
 
     if (award === 'inspire') {
+        const evidenceCount = evidenceKeywords.filter(kw => lowerAnswer.includes(kw)).length
+        const processCount = processKeywords.filter(kw => lowerAnswer.includes(kw)).length
+        const teamworkCount = teamworkKeywords.filter(kw => lowerAnswer.includes(kw)).length
+        const impactCount = impactKeywords.filter(kw => lowerAnswer.includes(kw)).length
         const balanced = [evidenceCount > 0, processCount > 0, teamworkCount > 0, impactCount > 0].filter(Boolean).length
         if (balanced >= 3) return { score: 4, feedback: 'Balanced answer covering multiple aspects—perfect for Inspire Award.' }
         if (balanced >= 2) return { score: 3, feedback: 'Good coverage. Inspire Award judges want to see excellence in all areas.' }
