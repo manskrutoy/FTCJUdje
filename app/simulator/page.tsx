@@ -68,7 +68,7 @@ function SimulatorContent() {
             setMessages([
                 {
                     role: 'assistant',
-                    content: `Welcome to the ${awardData?.name} Award interview practice. I'll be asking you questions about your team's robot and journey. Let's begin! ${selectedQuestions[0]?.question || 'Tell me about your robot design.'}`
+                    content: `Welcome to the ${awardData?.name} Award interview practice. I'll be asking you questions about your team's robot and journey. Let's begin! ${selectedQuestions[0]?.text || 'Tell me about your robot design.'}`
                 }
             ])
         } else {
@@ -83,7 +83,7 @@ function SimulatorContent() {
             ...answers,
             {
                 questionId: questions[currentQuestionIndex]?.id || `q${currentQuestionIndex}`,
-                questionText: questions[currentQuestionIndex]?.question || '',
+                questionText: questions[currentQuestionIndex]?.text || '',
                 answerText: currentAnswer,
             },
         ]
@@ -158,8 +158,8 @@ function SimulatorContent() {
                             <button
                                 onClick={() => setInterviewModeType('text')}
                                 className={`w-full p-4 rounded-lg border-2 transition-all ${interviewModeType === 'text'
-                                        ? 'border-ftc-blue bg-blue-50 text-ftc-blue'
-                                        : 'border-gray-200 hover:border-gray-300'
+                                    ? 'border-ftc-blue bg-blue-50 text-ftc-blue'
+                                    : 'border-gray-200 hover:border-gray-300'
                                     }`}
                             >
                                 <div className="font-semibold">📝 Text Interview</div>
@@ -168,8 +168,8 @@ function SimulatorContent() {
                             <button
                                 onClick={() => setInterviewModeType('voice')}
                                 className={`w-full p-4 rounded-lg border-2 transition-all ${interviewModeType === 'voice'
-                                        ? 'border-ftc-blue bg-blue-50 text-ftc-blue'
-                                        : 'border-gray-200 hover:border-gray-300'
+                                    ? 'border-ftc-blue bg-blue-50 text-ftc-blue'
+                                    : 'border-gray-200 hover:border-gray-300'
                                     }`}
                             >
                                 <div className="flex items-center justify-center gap-2 font-semibold">
@@ -237,8 +237,8 @@ function SimulatorContent() {
                                         key={mins}
                                         onClick={() => setDuration(mins)}
                                         className={`flex-1 p-3 rounded-lg border-2 transition-all ${duration === mins
-                                                ? 'border-ftc-orange bg-orange-50 text-ftc-orange font-semibold'
-                                                : 'border-gray-200 hover:border-gray-300'
+                                            ? 'border-ftc-orange bg-orange-50 text-ftc-orange font-semibold'
+                                            : 'border-gray-200 hover:border-gray-300'
                                             }`}
                                     >
                                         {mins} minutes
@@ -306,7 +306,7 @@ function SimulatorContent() {
                         {/* Question */}
                         <div className="p-8">
                             <div className="bg-gray-50 rounded-lg p-6 mb-6">
-                                <p className="text-xl font-semibold text-gray-900">{currentQuestion?.question}</p>
+                                <p className="text-xl font-semibold text-gray-900">{currentQuestion?.text}</p>
                             </div>
 
                             {/* Answer Input */}
@@ -352,7 +352,7 @@ function SimulatorContent() {
 
                 {showCoachModal && (
                     <CoachModal
-                        question={currentQuestion?.question || ''}
+                        questionText={currentQuestion?.text || ''}
                         award={award}
                         onClose={() => setShowCoachModal(false)}
                     />
