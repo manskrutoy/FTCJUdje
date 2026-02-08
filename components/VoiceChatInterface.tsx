@@ -180,6 +180,7 @@ export default function VoiceChatInterface({ award, difficulty, mode, onComplete
 
     const stopListening = () => {
         console.log('Stopping listening...')
+        console.trace('stopListening called from:')
         if (voiceRecognition.current) {
             voiceRecognition.current.stop()
             setIsListening(false)
