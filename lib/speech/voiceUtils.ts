@@ -9,17 +9,31 @@ export class VoiceRecognition {
         if (typeof window !== 'undefined' && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
             const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition
             this.recognition = new SpeechRecognition()
-            this.recognition.continuous = false
-            this.recognition.interimResults = false
+            this.recognition.continuous = true
+            this.recognition.interimResults = true
             this.recognition.lang = 'en-US'
+            this.recognition.maxAlternatives = 1
 
             this.recognition.onstart = () => {
                 this.isListening = true
             }
 
             this.recognition.onresult = (event: any) => {
-                const transcript = event.results[event.results.length - 1][0].transcript
-                this.onResult(transcript)
+                let finalTranscript = ''
+                let interimTranscript = ''
+
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    const transcript = event.results[i][0].transcript
+                    if (event.results[i].isFinal) {
+                        finalTranscript += transcript
+                    } else {
+                        interimTranscript += transcript
+                    }
+                }
+
+                if (finalTranscript) {
+                    this.onResult(finalTranscript)
+                }
             }
 
             this.recognition.onerror = (event: any) => {

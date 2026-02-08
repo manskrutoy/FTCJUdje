@@ -85,6 +85,14 @@ export default function VoiceChatInterface({ award, difficulty, mode, onComplete
             await speak(aiQuestion)
             setIsSpeaking(false)
 
+            // Auto-start listening after AI finishes speaking
+            setTimeout(() => {
+                if (voiceRecognition.current && !isListening) {
+                    voiceRecognition.current.start()
+                    setIsListening(true)
+                }
+            }, 500)
+
             // Check if interview should end
             if (questionCount >= maxQuestions || aiQuestion.toLowerCase().includes('thank you')) {
                 setTimeout(() => onComplete(newHistory), 1000)
@@ -230,7 +238,7 @@ export default function VoiceChatInterface({ award, difficulty, mode, onComplete
                     </button>
 
                     <p className="mt-4 text-gray-600 font-semibold">
-                        {isListening ? 'Tap to stop recording' : isSpeaking ? 'AI is speaking...' : isThinking ? 'AI is thinking...' : 'Tap to answer'}
+                        {isListening ? 'Speak your answer (will auto-detect when you finish)' : isSpeaking ? 'AI is speaking...' : isThinking ? 'AI is thinking...' : 'Recording will start automatically'}
                     </p>
 
                     {isSpeaking && (
