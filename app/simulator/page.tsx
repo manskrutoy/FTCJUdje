@@ -269,8 +269,7 @@ function SimulatorContent() {
                         award={award}
                         difficulty={difficulty}
                         mode={mode}
-                        onFinish={handleVoiceFinish}
-                        initialMessages={messages}
+                        onComplete={handleVoiceFinish}
                     />
                 </div>
             </div>
