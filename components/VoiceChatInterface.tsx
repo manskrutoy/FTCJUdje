@@ -101,6 +101,7 @@ export default function VoiceChatInterface({ award, difficulty, mode, onComplete
 
             // CRITICAL: Stop microphone before AI speaks to prevent echo
             if (voiceRecognition.current && isListening) {
+                console.log('Stopping microphone before AI speaks')
                 voiceRecognition.current.stop()
                 setIsListening(false)
             }
@@ -108,15 +109,28 @@ export default function VoiceChatInterface({ award, difficulty, mode, onComplete
             // Speak the question
             setIsThinking(false)
             setIsSpeaking(true)
+            console.log('AI about to speak:', aiQuestion.substring(0, 50))
             await speak(aiQuestion)
             setIsSpeaking(false)
+            console.log('AI finished speaking, waiting 1.5s before starting mic')
 
             // Wait longer before auto-starting microphone to prevent echo
             // This gives time for audio to finish playing completely
             setTimeout(() => {
-                if (voiceRecognition.current && !isListening) {
-                    voiceRecognition.current.start()
-                    setIsListening(true)
+                console.log('Attempting to auto-start microphone...')
+                console.log('voiceRecognition.current exists?', !!voiceRecognition.current)
+                console.log('isListening?', isListening)
+
+                if (voiceRecognition.current) {
+                    try {
+                        voiceRecognition.current.start()
+                        setIsListening(true)
+                        console.log('✅ Microphone auto-started successfully!')
+                    } catch (err) {
+                        console.error('Failed to start microphone:', err)
+                    }
+                } else {
+                    console.error('❌ voiceRecognition.current is null!')
                 }
             }, 1500) // Increased from 500ms to 1500ms
 
