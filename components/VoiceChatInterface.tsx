@@ -99,19 +99,26 @@ export default function VoiceChatInterface({ award, difficulty, mode, onComplete
             setConversationHistory(newHistory)
             setQuestionCount(prev => prev + 1)
 
+            // CRITICAL: Stop microphone before AI speaks to prevent echo
+            if (voiceRecognition.current && isListening) {
+                voiceRecognition.current.stop()
+                setIsListening(false)
+            }
+
             // Speak the question
             setIsThinking(false)
             setIsSpeaking(true)
             await speak(aiQuestion)
             setIsSpeaking(false)
 
-            // Auto-start listening after AI finishes speaking
+            // Wait longer before auto-starting microphone to prevent echo
+            // This gives time for audio to finish playing completely
             setTimeout(() => {
                 if (voiceRecognition.current && !isListening) {
                     voiceRecognition.current.start()
                     setIsListening(true)
                 }
-            }, 500)
+            }, 1500) // Increased from 500ms to 1500ms
 
             // Check if interview should end
             if (questionCount >= maxQuestions || aiQuestion.toLowerCase().includes('thank you')) {

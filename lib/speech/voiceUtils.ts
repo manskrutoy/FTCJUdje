@@ -87,15 +87,43 @@ export function speak(text: string, lang: string = 'en-US'): Promise<void> {
             return
         }
 
+        // Cancel any ongoing speech first
+        window.speechSynthesis.cancel()
+
         const utterance = new SpeechSynthesisUtterance(text)
         utterance.lang = lang
-        utterance.rate = 0.9
-        utterance.pitch = 1.0
-        utterance.volume = 1.0
 
-        utterance.onend = () => resolve()
-        utterance.onerror = () => reject('Speech synthesis failed')
+        // Try to find a better quality voice
+        const voices = window.speechSynthesis.getVoices()
 
+        // Prefer Microsoft or Google voices (typically higher quality)
+        const preferredVoice = voices.find(voice =>
+        (voice.lang.startsWith('en-') &&
+            (voice.name.includes('Female') ||
+                voice.name.includes('Samantha') ||
+                voice.name.includes('Google') ||
+                voice.name.includes('Microsoft')))
+        ) || voices.find(voice => voice.lang.startsWith('en-'))
+
+        if (preferredVoice) {
+            utterance.voice = preferredVoice
+        }
+
+        // More natural speech parameters
+        utterance.rate = 0.95  // Slightly slower for clarity
+        utterance.pitch = 1.1  // Slightly higher pitch for friendliness
+        utterance.volume = 0.9 // Slightly quieter to reduce echo
+
+        utterance.onend = () => {
+            console.log('AI finished speaking')
+            resolve()
+        }
+        utterance.onerror = (event) => {
+            console.error('Speech synthesis error:', event)
+            reject('Speech synthesis failed')
+        }
+
+        console.log('AI starting to speak:', text.substring(0, 50))
         window.speechSynthesis.speak(utterance)
     })
 }
