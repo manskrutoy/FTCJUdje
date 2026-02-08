@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { getQuestionsForSession } from '@/lib/data/questions'
 import { getAwardById } from '@/lib/data/awards'
@@ -17,7 +17,7 @@ import type { DifficultyLevel, InterviewMode } from '@/lib/ai/judgePrompts'
 type Stage = 'setup' | 'interview' | 'voice-interview' | 'results'
 type InterviewModeType = 'text' | 'voice'
 
-export default function SimulatorPage() {
+function SimulatorContent() {
     const searchParams = useSearchParams()
     const preselectedAward = searchParams?.get('award') || 'inspire'
 
@@ -29,449 +29,430 @@ export default function SimulatorPage() {
     const [duration, setDuration] = useState(10) // minutes
     const [questions, setQuestions] = useState<any[]>([])
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
-    const [answers, setAnswers] = useState<any[]>([])
+    const [answers, setAnswers] = useState<{ questionId: string; questionText: string; answerText: string }[]>([])
     const [currentAnswer, setCurrentAnswer] = useState('')
-    const [coachModalOpen, setCoachModalOpen] = useState(false)
-    const [coachHintsUsed, setCoachHintsUsed] = useState(0)
-    const [report, setReport] = useState<any>(null)
+    const [timeRemaining, setTimeRemaining] = useState(duration * 60) // seconds
+    const [showCoachModal, setShowCoachModal] = useState(false)
+    const [rubricScores, setRubricScores] = useState<any>(null)
+    const [sessionStarted, setSessionStarted] = useState(false)
 
-    const startInterview = () => {
+    // Voice interview state
+    const [messages, setMessages] = useState<Message[]>([])
+
+    useEffect(() => {
+        if (stage === 'interview' && sessionStarted) {
+            const timer = setInterval(() => {
+                setTimeRemaining((prev) => {
+                    if (prev <= 1) {
+                        clearInterval(timer)
+                        handleFinishInterview()
+                        return 0
+                    }
+                    return prev - 1
+                })
+            }, 1000)
+
+            return () => clearInterval(timer)
+        }
+    }, [stage, sessionStarted])
+
+    const handleStartSession = () => {
+        const selectedQuestions = getQuestionsForSession(award, duration)
+        setQuestions(selectedQuestions)
+        setTimeRemaining(duration * 60)
+        setSessionStarted(true)
+
         if (interviewModeType === 'voice') {
             setStage('voice-interview')
+            const awardData = getAwardById(award)
+            setMessages([
+                {
+                    role: 'assistant',
+                    content: `Welcome to the ${awardData?.name} Award interview practice. I'll be asking you questions about your team's robot and journey. Let's begin! ${selectedQuestions[0]?.question || 'Tell me about your robot design.'}`
+                }
+            ])
         } else {
-            const questionCount = duration === 5 ? 3 : duration === 10 ? 5 : 8
-            const selectedQuestions = getQuestionsForSession(award, questionCount)
-            setQuestions(selectedQuestions)
-            setAnswers([])
-            setCurrentQuestionIndex(0)
-            setCurrentAnswer('')
             setStage('interview')
         }
     }
 
-    const handleVoiceInterviewComplete = (conversationHistory: Message[]) => {
-        // Convert voice conversation to answers format
-        const voiceAnswers = conversationHistory
-            .filter(m => m.role === 'user' && m.content !== 'Start the interview')
-            .map((msg, idx) => ({
-                questionId: `voice-${idx}`,
-                questionText: conversationHistory[idx * 2]?.content || 'Question',
-                answerText: msg.content,
-                coachHintsUsed: 0
-            }))
+    const handleAnswerSubmit = () => {
+        if (!currentAnswer.trim()) return
 
-        completeInterview(voiceAnswers)
-    }
-
-    const handleNextQuestion = () => {
-        // Save current answer
-        const newAnswer = {
-            questionId: questions[currentQuestionIndex].id,
-            questionText: questions[currentQuestionIndex].text,
-            answerText: currentAnswer,
-            coachHintsUsed,
-        }
-        setAnswers([...answers, newAnswer])
+        const newAnswers = [
+            ...answers,
+            {
+                questionId: questions[currentQuestionIndex]?.id || `q${currentQuestionIndex}`,
+                questionText: questions[currentQuestionIndex]?.question || '',
+                answerText: currentAnswer,
+            },
+        ]
+        setAnswers(newAnswers)
         setCurrentAnswer('')
-        setCoachHintsUsed(0)
 
         if (currentQuestionIndex < questions.length - 1) {
             setCurrentQuestionIndex(currentQuestionIndex + 1)
         } else {
-            completeInterview([...answers, newAnswer])
+            handleFinishInterview()
         }
     }
 
-    const completeInterview = (finalAnswers: any[]) => {
-        const feedback = calculateRubricScores(finalAnswers, award)
-        setReport(feedback)
+    const handleFinishInterview = () => {
+        setSessionStarted(false)
+        const scores = calculateRubricScores(answers, award)
+        setRubricScores(scores)
         setStage('results')
     }
 
-    const handleTimerComplete = () => {
-        if (stage === 'interview') {
-            const finalAnswers = answers.length < questions.length
-                ? [...answers, {
-                    questionId: questions[currentQuestionIndex].id,
-                    questionText: questions[currentQuestionIndex].text,
-                    answerText: currentAnswer,
-                    coachHintsUsed,
-                }]
-                : answers
-            completeInterview(finalAnswers)
+    const handleVoiceFinish = (finalMessages: Message[]) => {
+        // Extract Q&A from messages
+        const extractedAnswers: { questionId: string; questionText: string; answerText: string }[] = []
+
+        for (let i = 0; i < finalMessages.length - 1; i++) {
+            if (finalMessages[i].role === 'assistant' && finalMessages[i + 1].role === 'user') {
+                extractedAnswers.push({
+                    questionId: `voice-q${i}`,
+                    questionText: finalMessages[i].content,
+                    answerText: finalMessages[i + 1].content,
+                })
+            }
         }
+
+        setAnswers(extractedAnswers)
+        const scores = calculateRubricScores(extractedAnswers, award)
+        setRubricScores(scores)
+        setStage('results')
     }
 
-    if (stage === 'setup') {
-        return (
-            <SetupScreen
-                award={award}
-                setAward={setAward}
-                interviewMode={interviewModeType}
-                setInterviewMode={setInterviewModeType}
-                difficulty={difficulty}
-                setDifficulty={setDifficulty}
-                mode={mode}
-                setMode={setMode}
-                duration={duration}
-                setDuration={setDuration}
-                onStart={startInterview}
-            />
-        )
+    const handleRestart = () => {
+        setStage('setup')
+        setCurrentQuestionIndex(0)
+        setAnswers([])
+        setCurrentAnswer('')
+        setRubricScores(null)
+        setMessages([])
+        setSessionStarted(false)
     }
 
-    if (stage === 'voice-interview') {
-        return (
-            <VoiceChatInterface
-                award={award}
-                difficulty={difficulty}
-                mode={mode}
-                onComplete={handleVoiceInterviewComplete}
-            />
-        )
+    const handleCoachHelp = () => {
+        setShowCoachModal(true)
     }
 
-    if (stage === 'interview') {
-        const currentQuestion = questions[currentQuestionIndex]
-        return (
-            <div className="min-h-screen bg-gray-50 py-8">
-                <div className="max-w-4xl mx-auto px-4">
-                    {/* Timer */}
-                    <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
-                        <Timer duration={duration * 60} onComplete={handleTimerComplete} />
+    // SETUP SCREEN
+    const SetupScreen = () => (
+        <div className="min-h-screen bg-gradient-to-br from-ftc-blue to-blue-900 flex items-center justify-center p-4">
+            <div className="max-w-4xl w-full bg-white rounded-2xl shadow-2xl p-8">
+                <div className="text-center mb-8">
+                    <div className="inline-flex items-center justify-center w-20 h-20 bg-ftc-orange rounded-full mb-4">
+                        <Trophy className="w-10 h-10 text-white" />
                     </div>
+                    <h1 className="text-4xl font-bold text-gray-900 mb-2">Interview Practice Simulator</h1>
+                    <p className="text-gray-600">Practice your FTC judging interview with AI feedback</p>
+                </div>
 
-                    {/* Progress */}
-                    <div className="mb-6 text-center">
-                        <p className="text-gray-600">
-                            Question {currentQuestionIndex + 1} of {questions.length}
-                        </p>
-                        <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-                            <div
-                                className="bg-ftc-orange h-2 rounded-full transition-all"
-                                style={{ width: `${((currentQuestionIndex + 1) / questions.length) * 100}%` }}
-                            />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                    {/* Interview Mode Selection */}
+                    <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-3">Interview Mode</label>
+                        <div className="space-y-2">
+                            <button
+                                onClick={() => setInterviewModeType('text')}
+                                className={`w-full p-4 rounded-lg border-2 transition-all ${interviewModeType === 'text'
+                                        ? 'border-ftc-blue bg-blue-50 text-ftc-blue'
+                                        : 'border-gray-200 hover:border-gray-300'
+                                    }`}
+                            >
+                                <div className="font-semibold">📝 Text Interview</div>
+                                <div className="text-sm text-gray-600">Type your answers</div>
+                            </button>
+                            <button
+                                onClick={() => setInterviewModeType('voice')}
+                                className={`w-full p-4 rounded-lg border-2 transition-all ${interviewModeType === 'voice'
+                                        ? 'border-ftc-blue bg-blue-50 text-ftc-blue'
+                                        : 'border-gray-200 hover:border-gray-300'
+                                    }`}
+                            >
+                                <div className="flex items-center justify-center gap-2 font-semibold">
+                                    <Mic className="w-4 h-4" />
+                                    <span>🎙️ Voice Interview (AI)</span>
+                                </div>
+                                <div className="text-sm text-gray-600">Speak naturally with AI judge</div>
+                            </button>
                         </div>
                     </div>
 
-                    {/* Question */}
-                    <div className="bg-white rounded-xl shadow-lg p-8 mb-6">
-                        <h2 className="text-2xl font-bold text-gray-900 mb-4">{currentQuestion.text}</h2>
-                        <textarea
-                            value={currentAnswer}
-                            onChange={(e) => setCurrentAnswer(e.target.value)}
-                            className="w-full h-48 border-2 border-gray-300 rounded-lg p-4 focus:border-ftc-orange focus:outline-none resize-none"
-                            placeholder="Type your answer here..."
-                        />
+                    {/* Award Selection */}
+                    <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-3">Target Award</label>
+                        <select
+                            value={award}
+                            onChange={(e) => setAward(e.target.value)}
+                            className="w-full p-3 border-2 border-gray-200 rounded-lg focus:border-ftc-blue focus:outline-none"
+                        >
+                            <option value="inspire">🏆 Inspire Award</option>
+                            <option value="think">🧠 Think Award</option>
+                            <option value="design">📐 Design Award</option>
+                            <option value="innovate">💡 Innovate Award</option>
+                            <option value="control">🎮 Control Award</option>
+                            <option value="motivate">⭐ Motivate Award</option>
+                            <option value="connect">🤝 Connect Award</option>
+                        </select>
                     </div>
 
-                    {/* Actions */}
-                    <div className="flex justify-between items-center">
-                        <button
-                            onClick={() => {
-                                setCoachModalOpen(true)
-                                setCoachHintsUsed(coachHintsUsed + 1)
-                            }}
-                            className="flex items-center space-x-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-6 py-3 rounded-lg font-semibold transition-colors"
+                    {/* Difficulty Level */}
+                    <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-3">Difficulty Level</label>
+                        <select
+                            value={difficulty}
+                            onChange={(e) => setDifficulty(e.target.value as DifficultyLevel)}
+                            className="w-full p-3 border-2 border-gray-200 rounded-lg focus:border-ftc-blue focus:outline-none"
                         >
-                            <HelpCircle className="w-5 h-5" />
-                            <span>Coach Mode</span>
-                        </button>
-
-                        <button
-                            onClick={handleNextQuestion}
-                            disabled={!currentAnswer.trim()}
-                            className="flex items-center space-x-2 bg-ftc-orange hover:bg-orange-600 text-white px-8 py-3 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                            <span>{currentQuestionIndex < questions.length - 1 ? 'Next Question' : 'Finish'}</span>
-                            <ArrowRight className="w-5 h-5" />
-                        </button>
+                            <option value="rookie">🌱 Rookie - Basic questions</option>
+                            <option value="standard">⚙️ Standard - Typical interview</option>
+                            <option value="advanced">🔥 Advanced - Deep technical</option>
+                        </select>
                     </div>
 
-                    <CoachModal
-                        isOpen={coachModalOpen}
-                        onClose={() => setCoachModalOpen(false)}
-                        hints={getCoachHints(currentQuestion.id)}
+                    {/* Interview Mode (Tone) */}
+                    <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-3">Interview Tone</label>
+                        <select
+                            value={mode}
+                            onChange={(e) => setMode(e.target.value as InterviewMode)}
+                            className="w-full p-3 border-2 border-gray-200 rounded-lg focus:border-ftc-blue focus:outline-none"
+                        >
+                            <option value="friendly">😊 Friendly - Encouraging</option>
+                            <option value="standard">👔 Standard - Professional</option>
+                            <option value="pressure">😰 Pressure - Challenging</option>
+                        </select>
+                    </div>
+
+                    {/* Duration (only for text mode) */}
+                    {interviewModeType === 'text' && (
+                        <div className="md:col-span-2">
+                            <label className="block text-sm font-semibold text-gray-700 mb-3">Duration</label>
+                            <div className="flex gap-3">
+                                {[5, 10, 15].map((mins) => (
+                                    <button
+                                        key={mins}
+                                        onClick={() => setDuration(mins)}
+                                        className={`flex-1 p-3 rounded-lg border-2 transition-all ${duration === mins
+                                                ? 'border-ftc-orange bg-orange-50 text-ftc-orange font-semibold'
+                                                : 'border-gray-200 hover:border-gray-300'
+                                            }`}
+                                    >
+                                        {mins} minutes
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <button
+                    onClick={handleStartSession}
+                    className="w-full bg-ftc-orange hover:bg-orange-600 text-white font-bold py-4 px-6 rounded-lg transition-colors flex items-center justify-center gap-2 text-lg"
+                >
+                    <Play className="w-6 h-6" />
+                    Start Interview
+                </button>
+            </div>
+        </div>
+    )
+
+    // VOICE INTERVIEW SCREEN
+    if (stage === 'voice-interview') {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-ftc-blue to-blue-900 p-4">
+                <div className="max-w-4xl mx-auto">
+                    <VoiceChatInterface
+                        award={award}
+                        difficulty={difficulty}
+                        mode={mode}
+                        onFinish={handleVoiceFinish}
+                        initialMessages={messages}
                     />
                 </div>
             </div>
         )
     }
 
-    if (stage === 'results' && report) {
-        return <ResultsScreen award={award} report={report} onRestart={() => setStage('setup')} />
+    // TEXT INTERVIEW SCREEN
+    if (stage === 'interview') {
+        const currentQuestion = questions[currentQuestionIndex]
+        const progress = ((currentQuestionIndex + 1) / questions.length) * 100
+
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-ftc-blue to-blue-900 p-4">
+                <div className="max-w-4xl mx-auto">
+                    <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+                        {/* Header */}
+                        <div className="bg-ftc-blue text-white p-6">
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-2xl font-bold">{getAwardById(award)?.name} Interview</h2>
+                                <Timer seconds={timeRemaining} />
+                            </div>
+                            <div className="w-full bg-blue-800 rounded-full h-2">
+                                <div
+                                    className="bg-ftc-orange h-2 rounded-full transition-all duration-300"
+                                    style={{ width: `${progress}%` }}
+                                />
+                            </div>
+                            <p className="text-sm mt-2 text-blue-100">
+                                Question {currentQuestionIndex + 1} of {questions.length}
+                            </p>
+                        </div>
+
+                        {/* Question */}
+                        <div className="p-8">
+                            <div className="bg-gray-50 rounded-lg p-6 mb-6">
+                                <p className="text-xl font-semibold text-gray-900">{currentQuestion?.question}</p>
+                            </div>
+
+                            {/* Answer Input */}
+                            <div className="mb-6">
+                                <textarea
+                                    value={currentAnswer}
+                                    onChange={(e) => setCurrentAnswer(e.target.value)}
+                                    placeholder="Type your answer here..."
+                                    className="w-full h-48 p-4 border-2 border-gray-200 rounded-lg focus:border-ftc-blue focus:outline-none resize-none"
+                                />
+                                <div className="mt-2 flex justify-between items-center text-sm text-gray-600">
+                                    <span>{currentAnswer.length} characters</span>
+                                    <button
+                                        onClick={handleCoachHelp}
+                                        className="flex items-center gap-1 text-ftc-blue hover:text-blue-700"
+                                    >
+                                        <HelpCircle className="w-4 h-4" />
+                                        Need a hint?
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={handleAnswerSubmit}
+                                    disabled={!currentAnswer.trim()}
+                                    className="flex-1 bg-ftc-orange hover:bg-orange-600 disabled:bg-gray-300 text-white font-semibold py-3 px-6 rounded-lg transition-colors flex items-center justify-center gap-2"
+                                >
+                                    {currentQuestionIndex < questions.length - 1 ? (
+                                        <>
+                                            Next Question
+                                            <ArrowRight className="w-5 h-5" />
+                                        </>
+                                    ) : (
+                                        'Finish Interview'
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {showCoachModal && (
+                    <CoachModal
+                        question={currentQuestion?.question || ''}
+                        award={award}
+                        onClose={() => setShowCoachModal(false)}
+                    />
+                )}
+            </div>
+        )
     }
 
-    return null
-}
+    // RESULTS SCREEN
+    if (stage === 'results' && rubricScores) {
+        const averageScore = rubricScores.scores.reduce((sum: number, s: any) => sum + s.score, 0) / rubricScores.scores.length
 
-function SetupScreen({ award, setAward, interviewMode, setInterviewMode, difficulty, setDifficulty, mode, setMode, duration, setDuration, onStart }: any) {
-    return (
-        <div className="min-h-screen bg-gray-50 py-12">
-            <div className="max-w-3xl mx-auto px-4">
-                <div className="bg-white rounded-xl shadow-lg p-8">
-                    <h1 className="text-3xl font-bold text-gray-900 mb-6">Mock Judging Setup</h1>
-
-                    {/* Interview Mode Selection */}
-                    <div className="mb-6">
-                        <label className="block text-lg font-semibold text-gray-900 mb-3">
-                            Interview Mode
-                        </label>
-                        <div className="grid grid-cols-2 gap-4">
-                            <button
-                                onClick={() => setInterviewMode('text')}
-                                className={`p-4 rounded-lg border-2 font-semibold transition-all flex items-center justify-center space-x-2 ${interviewMode === 'text'
-                                    ? 'border-ftc-blue bg-blue-50 text-ftc-blue'
-                                    : 'border-gray-300 hover:border-gray-400'
-                                    }`}
-                            >
-                                <Play className="w-5 h-5" />
-                                <span>Text-based</span>
-                            </button>
-                            <button
-                                onClick={() => setInterviewMode('voice')}
-                                className={`p-4 rounded-lg border-2 font-semibold transition-all flex items-center justify-center space-x-2 ${interviewMode === 'voice'
-                                    ? 'border-ftc-orange bg-orange-50 text-ftc-orange'
-                                    : 'border-gray-300 hover:border-gray-400'
-                                    }`}
-                            >
-                                <Mic className="w-5 h-5" />
-                                <span>AI Voice Chat 🎤</span>
-                            </button>
-                        </div>
-                        {interviewMode === 'voice' && (
-                            <p className="mt-2 text-sm text-gray-600">
-                                💡 Practice with real-time AI judge conversation using your voice!
-                            </p>
-                        )}
-                    </div>
-
-                    {/* Award Selection */}
-                    <div className="mb-6">
-                        <label className="block text-lg font-semibold text-gray-900 mb-3">
-                            Select Award Focus
-                        </label>
-                        <div className="grid grid-cols-3 gap-4">
-                            {['inspire', 'think', 'design', 'impact', 'control', 'connect', 'innovate'].map((a) => (
-                                <button
-                                    key={a}
-                                    onClick={() => setAward(a)}
-                                    className={`p-4 rounded-lg border-2 font-semibold capitalize transition-all ${award === a
-                                        ? 'border-ftc-orange bg-orange-50 text-ftc-orange'
-                                        : 'border-gray-300 hover:border-gray-400'
-                                        }`}
-                                >
-                                    {a}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Difficulty Level Selection - NEW */}
-                    <div className="mb-6">
-                        <label className="block text-lg font-semibold text-gray-900 mb-3">
-                            Difficulty Level
-                        </label>
-                        <div className="grid grid-cols-3 gap-4">
-                            <button
-                                onClick={() => setDifficulty('rookie')}
-                                className={`p-4 rounded-lg border-2 font-semibold transition-all ${difficulty === 'rookie'
-                                    ? 'border-green-500 bg-green-50 text-green-700'
-                                    : 'border-gray-300 hover:border-gray-400'
-                                    }`}
-                            >
-                                <div className="text-base">🌱 Rookie</div>
-                                <div className="text-xs mt-1 text-gray-600">Simple questions</div>
-                            </button>
-                            <button
-                                onClick={() => setDifficulty('standard')}
-                                className={`p-4 rounded-lg border-2 font-semibold transition-all ${difficulty === 'standard'
-                                    ? 'border-ftc-blue bg-blue-50 text-ftc-blue'
-                                    : 'border-gray-300 hover:border-gray-400'
-                                    }`}
-                            >
-                                <div className="text-base">⚙️ Standard</div>
-                                <div className="text-xs mt-1 text-gray-600">Competition-level</div>
-                            </button>
-                            <button
-                                onClick={() => setDifficulty('advanced')}
-                                className={`p-4 rounded-lg border-2 font-semibold transition-all ${difficulty === 'advanced'
-                                    ? 'border-purple-500 bg-purple-50 text-purple-700'
-                                    : 'border-gray-300 hover:border-gray-400'
-                                    }`}
-                            >
-                                <div className="text-base">🏆 Advanced</div>
-                                <div className="text-xs mt-1 text-gray-600">Championship-level</div>
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Interview Style Selection - NEW */}
-                    <div className="mb-6">
-                        <label className="block text-lg font-semibold text-gray-900 mb-3">
-                            Judge Personality
-                        </label>
-                        <div className="grid grid-cols-3 gap-4">
-                            <button
-                                onClick={() => setMode('friendly')}
-                                className={`p-4 rounded-lg border-2 font-semibold transition-all ${mode === 'friendly'
-                                    ? 'border-green-500 bg-green-50 text-green-700'
-                                    : 'border-gray-300 hover:border-gray-400'
-                                    }`}
-                            >
-                                <div className="text-base">😊 Friendly</div>
-                                <div className="text-xs mt-1 text-gray-600">Warm & supportive</div>
-                            </button>
-                            <button
-                                onClick={() => setMode('standard')}
-                                className={`p-4 rounded-lg border-2 font-semibold transition-all ${mode === 'standard'
-                                    ? 'border-ftc-blue bg-blue-50 text-ftc-blue'
-                                    : 'border-gray-300 hover:border-gray-400'
-                                    }`}
-                            >
-                                <div className="text-base">🎯 Standard</div>
-                                <div className="text-xs mt-1 text-gray-600">Professional</div>
-                            </button>
-                            <button
-                                onClick={() => setMode('pressure')}
-                                className={`p-4 rounded-lg border-2 font-semibold transition-all ${mode === 'pressure'
-                                    ? 'border-red-500 bg-red-50 text-red-700'
-                                    : 'border-gray-300 hover:border-gray-400'
-                                    }`}
-                            >
-                                <div className="text-base">🔥 Pressure</div>
-                                <div className="text-xs mt-1 text-gray-600">High-stakes</div>
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Duration Selection */}
-                    <div className="mb-8">
-                        <label className="block text-lg font-semibold text-gray-900 mb-3">
-                            Session Duration
-                        </label>
-                        <div className="grid grid-cols-3 gap-4">
-                            {[5, 10, 15].map((d) => (
-                                <button
-                                    key={d}
-                                    onClick={() => setDuration(d)}
-                                    className={`p-4 rounded-lg border-2 font-semibold transition-all ${duration === d
-                                        ? 'border-ftc-blue bg-blue-50 text-ftc-blue'
-                                        : 'border-gray-300 hover:border-gray-400'
-                                        }`}
-                                >
-                                    {d} minutes
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    <button
-                        onClick={onStart}
-                        className="w-full bg-ftc-orange hover:bg-orange-600 text-white py-4 rounded-lg font-semibold text-lg flex items-center justify-center space-x-2 transition-colors"
-                    >
-                        <Play className="w-6 h-6" />
-                        <span>Start Interview</span>
-                    </button>
-                </div>
-            </div>
-        </div>
-    )
-}
-
-function ResultsScreen({ award, report, onRestart }: any) {
-    const awardInfo = getAwardById(award)
-
-    return (
-        <div className="min-h-screen bg-gray-50 py-12">
-            <div className="max-w-5xl mx-auto px-4">
-                <div className="text-center mb-8">
-                    <Trophy className="w-16 h-16 text-ftc-orange mx-auto mb-4" />
-                    <h1 className="text-4xl font-bold text-gray-900 mb-2">Session Complete!</h1>
-                    <p className="text-xl text-gray-600">
-                        Here's your feedback for {awardInfo?.name}
-                    </p>
-                </div>
-
-                {/* Rubric Scores */}
-                <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
-                    <h2 className="text-2xl font-bold text-gray-900 mb-6">Rubric Scores</h2>
-                    <div className="grid md:grid-cols-2 gap-6">
-                        {report.scores.map((score: any) => (
-                            <div key={score.category}>
-                                <div className="flex justify-between items-center mb-2">
-                                    <span className="font-semibold capitalize">{score.category}</span>
-                                    <span className="text-2xl font-bold text-ftc-orange">{score.score}/4</span>
-                                </div>
-                                <div className="w-full bg-gray-200 rounded-full h-3">
-                                    <div
-                                        className={`h-3 rounded-full ${score.score >= 4 ? 'bg-green-500' : score.score >= 3 ? 'bg-yellow-500' : 'bg-red-500'
-                                            }`}
-                                        style={{ width: `${(score.score / 4) * 100}%` }}
-                                    />
-                                </div>
-                                <p className="text-sm text-gray-600 mt-1">{score.feedback}</p>
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-ftc-blue to-blue-900 p-4">
+                <div className="max-w-4xl mx-auto">
+                    <div className="bg-white rounded-2xl shadow-2xl p-8">
+                        <div className="text-center mb-8">
+                            <div className="inline-flex items-center justify-center w-20 h-20 bg-green-100 rounded-full mb-4">
+                                <Trophy className="w-10 h-10 text-green-600" />
                             </div>
-                        ))}
+                            <h2 className="text-3xl font-bold text-gray-900 mb-2">Interview Complete!</h2>
+                            <p className="text-xl text-gray-600">Overall Score: {averageScore.toFixed(1)} / 4.0</p>
+                        </div>
+
+                        {/* Rubric Scores */}
+                        <div className="mb-8">
+                            <h3 className="text-xl font-bold text-gray-900 mb-4">Detailed Rubric Scores</h3>
+                            <div className="space-y-3">
+                                {rubricScores.scores.map((score: any, idx: number) => (
+                                    <div key={idx} className="bg-gray-50 rounded-lg p-4">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="font-semibold text-gray-900 capitalize">{score.category}</span>
+                                            <span className="text-lg font-bold text-ftc-blue">{score.score} / 4</span>
+                                        </div>
+                                        <p className="text-sm text-gray-600">{score.feedback}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Strengths */}
+                        <div className="mb-6">
+                            <h3 className="text-lg font-bold text-green-700 mb-2">💪 Strengths</h3>
+                            <ul className="list-disc list-inside space-y-1 text-gray-700">
+                                {rubricScores.strengths.map((strength: string, idx: number) => (
+                                    <li key={idx}>{strength}</li>
+                                ))}
+                            </ul>
+                        </div>
+
+                        {/* Weaknesses */}
+                        {rubricScores.weaknesses.length > 0 && (
+                            <div className="mb-6">
+                                <h3 className="text-lg font-bold text-orange-700 mb-2">📝 Areas to Improve</h3>
+                                <ul className="list-disc list-inside space-y-1 text-gray-700">
+                                    {rubricScores.weaknesses.map((weakness: string, idx: number) => (
+                                        <li key={idx}>{weakness}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        {/* Recommendations */}
+                        <div className="mb-8">
+                            <h3 className="text-lg font-bold text-ftc-blue mb-2">💡 Recommendations</h3>
+                            <ul className="list-disc list-inside space-y-1 text-gray-700">
+                                {rubricScores.recommendations.map((rec: string, idx: number) => (
+                                    <li key={idx}>{rec}</li>
+                                ))}
+                            </ul>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex gap-3">
+                            <button
+                                onClick={handleRestart}
+                                className="flex-1 bg-ftc-orange hover:bg-orange-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
+                            >
+                                Try Again
+                            </button>
+                            <Link
+                                href="/dashboard"
+                                className="flex-1 bg-ftc-blue hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors text-center"
+                            >
+                                View Dashboard
+                            </Link>
+                        </div>
                     </div>
-                </div>
-
-                {/* Strengths & Weaknesses */}
-                <div className="grid md:grid-cols-2 gap-8 mb-8">
-                    <div className="bg-white rounded-xl shadow-lg p-6">
-                        <h3 className="text-xl font-bold text-green-600 mb-4">Strengths</h3>
-                        <ul className="space-y-2">
-                            {report.strengths.map((s: string, idx: number) => (
-                                <li key={idx} className="flex items-start space-x-2">
-                                    <span className="text-green-500">✓</span>
-                                    <span className="text-gray-700">{s}</span>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-
-                    <div className="bg-white rounded-xl shadow-lg p-6">
-                        <h3 className="text-xl font-bold text-red-600 mb-4">Areas to Improve</h3>
-                        <ul className="space-y-2">
-                            {report.weaknesses.map((w: string, idx: number) => (
-                                <li key={idx} className="flex items-start space-x-2">
-                                    <span className="text-red-500">•</span>
-                                    <span className="text-gray-700">{w}</span>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                </div>
-
-                {/* Recommendations */}
-                <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
-                    <h3 className="text-xl font-bold text-ftc-blue mb-4">Next Steps & Recommendations</h3>
-                    <ul className="space-y-3">
-                        {report.recommendations.map((r: string, idx: number) => (
-                            <li key={idx} className="flex items-start space-x-2">
-                                <span className="text-ftc-orange font-bold">{idx + 1}.</span>
-                                <span className="text-gray-700">{r}</span>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-
-                {/* Actions */}
-                <div className="flex justify-center space-x-4">
-                    <button
-                        onClick={onRestart}
-                        className="bg-ftc-orange hover:bg-orange-600 text-white px-8 py-3 rounded-lg font-semibold transition-colors"
-                    >
-                        Practice Again
-                    </button>
-                    <Link
-                        href="/dashboard"
-                        className="bg-ftc-blue hover:bg-blue-800 text-white px-8 py-3 rounded-lg font-semibold transition-colors"
-                    >
-                        View Dashboard
-                    </Link>
                 </div>
             </div>
-        </div>
+        )
+    }
+
+    return <SetupScreen />
+}
+
+export default function SimulatorPage() {
+    return (
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-ftc-blue to-blue-900 text-white text-xl">Loading simulator...</div>}>
+            <SimulatorContent />
+        </Suspense>
     )
 }
